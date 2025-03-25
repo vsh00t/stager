@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Threading;
+using System.Linq;
 
 namespace SilentWorker
 {
